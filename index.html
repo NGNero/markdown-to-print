@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>markdown-to-print — Markdown Printer</title>
+
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- Marked.js -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+  :root {
+    --md-font-size: 15px;
+    --md-line-height: 1.6;
+  }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background-color: #ffffff;
+    color: #000000;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- Controls ---------- */
+  .ctrl {
+    width: 100%;
+    border: 1px solid #000;
+    background: #fff;
+    color: #000;
+    font-size: 12px;
+    padding: 5px 8px;
+    border-radius: 0;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+    transition: background .15s ease;
+  }
+  .ctrl:hover { background: #f7f7f7; }
+  .ctrl:focus { outline: none; box-shadow: 0 0 0 1px #000; }
+
+  select.ctrl {
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    padding-right: 24px;
+  }
+  select.ctrl:hover { background-color: #f7f7f7; }
+
+  input[type="checkbox"] { accent-color: #000; }
+
+  /* ---------- Drop zone ---------- */
+  #drop-zone { transition: background .15s ease, border-color .15s ease; }
+  #drop-zone.dragging { background: #f3f4f6; border-style: solid; }
+
+  /* ---------- Markdown body ---------- */
+  .md-body {
+    color: #000;
+    line-height: var(--md-line-height);
+    font-size: var(--md-font-size);
+    width: 100%;
+    word-wrap: break-word;
+  }
+
+  .md-body > *:first-child { margin-top: 0 !important; }
+
+  .md-body h1 {
+    font-size: 1.8em;
+    font-weight: 700;
+    margin-top: 1.6em;
+    margin-bottom: .6em;
+    border-bottom: 2px solid #000;
+    padding-bottom: .3em;
+    break-after: avoid !important;
+    page-break-after: avoid !important;
+  }
+  .md-body h2 {
+    font-size: 1.4em;
+    font-weight: 700;
+    margin-top: 1.4em;
+    margin-bottom: .5em;
+    border-bottom: 1px solid #000;
+    padding-bottom: .2em;
+    break-after: avoid !important;
+    page-break-after: avoid !important;
+  }
+  .md-body h3, .md-body h4, .md-body h5, .md-body h6 {
+    font-size: 1.15em;
+    font-weight: 600;
+    margin-top: 1.2em;
+    margin-bottom: .4em;
+    break-after: avoid !important;
+    page-break-after: avoid !important;
+  }
+
+  .md-body p {
+    margin-bottom: 1em;
+    text-align: left;
+    orphans: 3;
+    widows: 3;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  body.justify .md-body p { text-align: justify; }
+
+  .md-body ul, .md-body ol {
+    margin-top: .5em;
+    margin-bottom: 1em;
+    padding-left: 1.5em;
+  }
+  .md-body ul { list-style-type: disc; }
+  .md-body ol { list-style-type: decimal; }
+  .md-body li {
+    margin-bottom: .3em;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .md-body li > ul, .md-body li > ol { margin-bottom: 0; }
+
+  .md-body ul.contains-task-list { list-style: none; padding-left: .3em; }
+  .md-body ul.contains-task-list li { display: flex; gap: .5em; align-items: flex-start; }
+  .md-body input[type="checkbox"] { margin-top: .35em; flex: none; }
+
+  .md-body blockquote {
+    border-left: 3px solid #000;
+    padding-left: 1em;
+    margin: 1em 0;
+    font-style: italic;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .md-body blockquote > :last-child { margin-bottom: 0; }
+
+  .md-body hr {
+    border: 0;
+    border-top: 1px solid #000;
+    margin: 1.8em 0;
+  }
+
+  .md-body a { color: #000; text-decoration: underline; text-underline-offset: 2px; }
+
+  .md-body code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: #f0f0f0;
+    padding: .1em .3em;
+    border: 1px solid #ccc;
+    font-size: .9em;
+  }
+  .md-body pre {
+    background: #f8f8f8;
+    border: 1px solid #000;
+    padding: .8em;
+    margin-bottom: 1em;
+    overflow-x: auto;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    line-height: 1.45;
+  }
+  .md-body pre code {
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-size: .88em;
+  }
+
+  .md-body table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1em;
+    font-size: .95em;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .md-body th, .md-body td {
+    border: 1px solid #000;
+    padding: .4em .6em;
+    text-align: left;
+    vertical-align: top;
+  }
+  .md-body th { font-weight: 700; background: #f2f2f2; }
+
+  .md-body img { max-width: 100%; height: auto; }
+
+  .md-body strong { font-weight: 700; }
+  .md-body em { font-style: italic; }
+  .md-body del { text-decoration: line-through; }
+
+  /* ---------- Optional page breaks ---------- */
+  body.break-h1 .md-body h1:not(:first-child) {
+    break-before: page !important;
+    page-break-before: always !important;
+  }
+  body.break-h2 .md-body h2 {
+    break-before: page !important;
+    page-break-before: always !important;
+  }
+
+  /* ---------- Preview "paper" look (screen only) ---------- */
+  #preview {
+    background: #fff;
+    border: 1px solid #e5e5e5;
+    box-shadow: 0 1px 2px rgba(0,0,0,.05);
+  }
+
+  /* ---------- Print ---------- */
+  @media print {
+    .no-print { display: none !important; }
+
+    html, body { background: #fff !important; }
+
+    #app,
+    #print-screen,
+    #content-area,
+    #preview,
+    #markdown-output {
+      display: block !important;
+      height: auto !important;
+      min-height: 0 !important;
+      max-height: none !important;
+      max-width: none !important;
+      width: 100% !important;
+      overflow: visible !important;
+      position: static !important;
+      float: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      border: 0 !important;
+      box-shadow: none !important;
+      background: #fff !important;
+      color: #000 !important;
+    }
+
+    .md-body th { background: transparent !important; }
+
+    h1, h2, h3, h4, h5, h6 {
+      break-after: avoid !important;
+      page-break-after: avoid !important;
+    }
+    p, blockquote, li, pre, table, tr {
+      break-inside: avoid !important;
+      page-break-inside: avoid !important;
+      orphans: 3 !important;
+      widows: 3 !important;
+    }
+
+    body.show-link-urls .md-body a[href^="http"]::after {
+      content: " (" attr(href) ")";
+      font-size: .85em;
+      word-break: break-all;
+      text-decoration: none;
+    }
+  }
+</style>
+
+<!-- Dynamic @page rules (size / margins) -->
+<style id="page-style"></style>
+</head>
+
+<body class="min-h-screen flex flex-col bg-white text-black">
+
+  <!-- ============ HEADER ============ -->
+  <header class="no-print border-b border-black">
+    <div class="max-w-5xl mx-auto px-4 h-12 flex items-center justify-between gap-4">
+      <div class="flex items-baseline gap-2 min-w-0">
+        <span class="font-bold tracking-tight text-sm whitespace-nowrap">markdown-to-print</span>
+        <span class="text-[11px] text-gray-500 truncate">(Markdown Printer)</span>
+      </div>
+
+      <a href="https://www.patreon.com/cw/modcore" target="_blank" rel="noopener noreferrer"
+         class="group inline-flex items-center gap-1.5 text-[11px] font-semibold border border-black px-2.5 py-1 hover:bg-black hover:text-white transition-colors">
+        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 21s-7.5-4.7-9.3-9A5.4 5.4 0 0 1 12 5.4 5.4 5.4 0 0 1 21.3 12c-1.8 4.3-9.3 9-9.3 9z"/>
+        </svg>
+        Support on Patreon
+      </a>
+    </div>
+  </header>
+
+  <main id="app" class="flex-1 w-full">
+
+    <!-- ============ INPUT SCREEN ============ -->
+    <section id="upload-screen" class="no-print max-w-2xl mx-auto px-4 py-12 sm:py-16">
+      <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-center">Markdown Printer</h1>
+      <p class="text-sm text-gray-500 text-center mt-2 mb-10">
+        Drop a file or paste your Markdown — get a clean, print-ready document.
+      </p>
+
+      <!-- Drop zone -->
+      <div id="drop-zone"
+           class="border-2 border-dashed border-black p-8 text-center cursor-pointer hover:bg-gray-50 flex flex-col items-center justify-center gap-2 mb-6 select-none">
+        <input type="file" id="file-input" accept=".md,.markdown,.txt,.text" class="hidden">
+        <svg class="w-8 h-8 mb-1" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round"
+                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+        </svg>
+        <p class="font-semibold text-sm">Upload a file or drag it here</p>
+        <p class="text-xs text-gray-500">Supports .md, .markdown and .txt</p>
+      </div>
+
+      <!-- Divider -->
+      <div class="flex items-center gap-4 mb-6">
+        <div class="flex-1 border-t border-gray-300"></div>
+        <span class="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">or paste text</span>
+        <div class="flex-1 border-t border-gray-300"></div>
+      </div>
+
+      <!-- Textarea -->
+      <textarea id="raw-text-input" rows="10" spellcheck="false"
+                placeholder="# Hello&#10;&#10;Paste your Markdown here…"
+                class="w-full p-3 border border-black text-sm font-mono leading-relaxed resize-y focus:outline-none focus:ring-1 focus:ring-black placeholder:text-gray-400"></textarea>
+
+      <div class="flex flex-col sm:flex-row gap-2 mt-4">
+        <button id="render-text-btn"
+                class="flex-1 py-3 bg-black text-white text-sm font-bold hover:bg-gray-800 active:bg-gray-900 transition-colors">
+          Preview &amp; Print
+        </button>
+        <button id="example-btn"
+                class="py-3 px-4 border border-black text-sm font-medium hover:bg-gray-100 transition-colors">
+          Load example
+        </button>
+      </div>
+
+      <p class="text-[11px] text-gray-400 text-center mt-4">
+        Tip: press
+        <kbd class="px-1 py-0.5 border border-gray-300 bg-gray-50 font-mono text-[10px]">Ctrl</kbd>
+        +
+        <kbd class="px-1 py-0.5 border border-gray-300 bg-gray-50 font-mono text-[10px]">Enter</kbd>
+        to render. Your draft is saved locally.
+      </p>
+    </section>
+
+    <!-- ============ PREVIEW / PRINT SCREEN ============ -->
+    <section id="print-screen" class="hidden">
+
+      <!-- Toolbar -->
+      <div class="no-print sticky top-0 z-40 bg-white border-b border-black">
+        <div class="max-w-5xl mx-auto px-4">
+
+          <!-- Row 1 -->
+          <div class="flex items-center gap-3 py-2.5">
+            <button id="back-btn"
+                    class="shrink-0 text-xs font-medium px-2.5 py-1.5 border border-black hover:bg-black hover:text-white transition-colors">
+              &larr; Edit
+            </button>
+
+            <div class="min-w-0 flex-1 leading-tight">
+              <div id="file-name" class="text-xs font-mono font-semibold truncate">document.md</div>
+              <div id="doc-stats" class="text-[10px] text-gray-500 truncate">0 words</div>
+            </div>
+
+            <button id="options-btn"
+                    class="shrink-0 text-xs font-medium px-2.5 py-1.5 border border-black hover:bg-gray-100 transition-colors flex items-center gap-1.5">
+              Options
+              <svg id="options-chevron" class="w-3 h-3 transition-transform" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+              </svg>
+            </button>
+
+            <button id="print-btn"
+                    class="shrink-0 text-xs font-bold px-4 py-1.5 bg-black text-white hover:bg-gray-800 transition-colors">
+              Print / PDF
+            </button>
+          </div>
+
+          <!-- Row 2: options panel -->
+          <div id="options-panel" class="hidden border-t border-gray-200 py-3">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <label class="block">
+                <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Page size</span>
+                <select id="opt-page" class="ctrl">
+                  <option value="A4">A4</option>
+                  <option value="Letter">Letter</option>
+                </select>
+              </label>
+
+              <label class="block">
+                <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Margins</span>
+                <select id="opt-margin" class="ctrl">
+                  <option value="narrow">Narrow</option>
+                  <option value="normal">Normal</option>
+                  <option value="wide">Wide</option>
+                </select>
+              </label>
+
+              <label class="block">
+                <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Text size</span>
+                <select id="opt-size" class="ctrl">
+                  <option value="13">Small</option>
+                  <option value="15">Normal</option>
+                  <option value="17">Large</option>
+                </select>
+              </label>
+
+              <label class="block">
+                <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Line height</span>
+                <select id="opt-leading" class="ctrl">
+                  <option value="1.4">Compact</option>
+                  <option value="1.6">Normal</option>
+                  <option value="1.8">Relaxed</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="flex flex-wrap gap-x-5 gap-y-2 mt-3 pt-3 border-t border-gray-100">
+              <label class="flex items-center gap-1.5 cursor-pointer select-none text-xs">
+                <input type="checkbox" id="opt-break-h1" class="w-3.5 h-3.5">
+                <span>New page before H1</span>
+              </label>
+              <label class="flex items-center gap-1.5 cursor-pointer select-none text-xs">
+                <input type="checkbox" id="opt-break-h2" class="w-3.5 h-3.5">
+                <span>New page before H2</span>
+              </label>
+              <label class="flex items-center gap-1.5 cursor-pointer select-none text-xs">
+                <input type="checkbox" id="opt-justify" class="w-3.5 h-3.5">
+                <span>Justify text</span>
+              </label>
+              <label class="flex items-center gap-1.5 cursor-pointer select-none text-xs">
+                <input type="checkbox" id="opt-links" class="w-3.5 h-3.5">
+                <span>Show link URLs in print</span>
+              </label>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Document -->
+      <div id="content-area" class="max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
+        <div id="preview" class="p-6 sm:p-10">
+          <div id="markdown-output" class="md-body"><!-- rendered markdown --></div>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <!-- ============ PATREON BANNER ============ -->
+  <footer class="no-print border-t border-black bg-black text-white">
+    <div class="max-w-5xl mx-auto px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-3">
+      <p class="text-[11px] text-center sm:text-left leading-relaxed">
+        <span class="font-semibold">markdown-to-print</span> is free to use.
+        <span class="text-gray-400">If it saves you time, consider buying us a coffee.</span>
+      </p>
+
+      <a href="https://www.patreon.com/cw/modcore" target="_blank" rel="noopener noreferrer"
+         class="group shrink-0 inline-flex items-center gap-2 px-3.5 py-1.5 bg-white text-black text-xs font-bold hover:bg-gray-200 transition-colors">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 21s-7.5-4.7-9.3-9A5.4 5.4 0 0 1 12 5.4 5.4 5.4 0 0 1 21.3 12c-1.8 4.3-9.3 9-9.3 9z"/>
+        </svg>
+        Support on Patreon
+        <span class="transition-transform group-hover:translate-x-0.5">&rarr;</span>
+      </a>
+    </div>
+  </footer>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ---------------- Elements ---------------- */
+  const uploadScreen  = document.getElementById('upload-screen');
+  const printScreen   = document.getElementById('print-screen');
+  const dropZone      = document.getElementById('drop-zone');
+  const fileInput     = document.getElementById('file-input');
+  const rawTextInput  = document.getElementById('raw-text-input');
+  const renderTextBtn = document.getElementById('render-text-btn');
+  const exampleBtn    = document.getElementById('example-btn');
+  const markdownOutput= document.getElementById('markdown-output');
+  const fileNameEl    = document.getElementById('file-name');
+  const docStats      = document.getElementById('doc-stats');
+  const printBtn      = document.getElementById('print-btn');
+  const backBtn       = document.getElementById('back-btn');
+  const optionsBtn    = document.getElementById('options-btn');
+  const optionsPanel  = document.getElementById('options-panel');
+  const optionsChevron= document.getElementById('options-chevron');
+
+  const optPage    = document.getElementById('opt-page');
+  const optMargin  = document.getElementById('opt-margin');
+  const optSize    = document.getElementById('opt-size');
+  const optLeading = document.getElementById('opt-leading');
+  const optBreakH1 = document.getElementById('opt-break-h1');
+  const optBreakH2 = document.getElementById('opt-break-h2');
+  const optJustify = document.getElementById('opt-justify');
+  const optLinks   = document.getElementById('opt-links');
+
+  const DEFAULT_TITLE = 'markdown-to-print — Markdown Printer';
+  const OPTS_KEY   = 'mdprint.options.v1';
+  const DRAFT_KEY  = 'mdprint.draft.v1';
+
+  const MARGINS = {
+    narrow: '12mm',
+    normal: '20mm 15mm',
+    wide:   '25mm 20mm'
+  };
+
+  const EXAMPLE = [
+    '# Quarterly Report',
+    '',
+    '> A short example showing what **markdown-to-print** can do.',
+    '',
+    '## Highlights',
+    '',
+    '- Fast, dependency-light rendering',
+    '- Clean black & white print stylesheet',
+    '- Optional page breaks before headings',
+    '',
+    '## Data',
+    '',
+    '| Metric   | Q1   | Q2   |',
+    '|----------|------|------|',
+    '| Revenue  | 12k  | 18k  |',
+    '| Users    | 340  | 512  |',
+    '',
+    '## Code',
+    '',
+    '```js',
+    'const greet = (name) => `Hello, ${name}!`;',
+    'console.log(greet("world"));',
+    '```',
+    '',
+    '---',
+    '',
+    '### Notes',
+    '',
+    '1. First point',
+    '2. Second point',
+    '3. Third point',
+    '',
+    'More at [the documentation](https://example.com/docs).'
+  ].join('\n');
+
+  /* ---------------- Safe storage ---------------- */
+  function store(key, value) {
+    try { localStorage.setItem(key, value); } catch (e) { /* ignore */ }
+  }
+  function read(key) {
+    try { return localStorage.getItem(key); } catch (e) { return null; }
+  }
+
+  /* ---------------- Options ---------------- */
+  function syncFromUI() {
+    document.documentElement.style.setProperty('--md-font-size', optSize.value + 'px');
+    document.documentElement.style.setProperty('--md-line-height', optLeading.value);
+
+    document.body.classList.toggle('justify', optJustify.checked);
+    document.body.classList.toggle('break-h1', optBreakH1.checked);
+    document.body.classList.toggle('break-h2', optBreakH2.checked);
+    document.body.classList.toggle('show-link-urls', optLinks.checked);
+
+    document.getElementById('page-style').textContent =
+      '@page { size: ' + optPage.value + '; margin: ' + (MARGINS[optMargin.value] || MARGINS.normal) + '; }';
+
+    store(OPTS_KEY, JSON.stringify({
+      page: optPage.value,
+      margin: optMargin.value,
+      size: optSize.value,
+      leading: optLeading.value,
+      breakH1: optBreakH1.checked,
+      breakH2: optBreakH2.checked,
+      justify: optJustify.checked,
+      links: optLinks.checked
+    }));
+  }
+
+  function loadOptions() {
+    let o = null;
+    try { o = JSON.parse(read(OPTS_KEY) || 'null'); } catch (e) { o = null; }
+
+    if (o) {
+      if (o.page)    optPage.value = o.page;
+      if (o.margin)  optMargin.value = o.margin;
+      if (o.size)    optSize.value = o.size;
+      if (o.leading) optLeading.value = o.leading;
+      optBreakH1.checked = !!o.breakH1;
+      optBreakH2.checked = !!o.breakH2;
+      optJustify.checked = o.justify !== false;
+      optLinks.checked   = !!o.links;
+    } else {
+      optJustify.checked = true;
+    }
+    syncFromUI();
+  }
+
+  [optPage, optMargin, optSize, optLeading, optBreakH1, optBreakH2, optJustify, optLinks]
+    .forEach(function (el) { el.addEventListener('change', syncFromUI); });
+
+  /* ---------------- Options panel toggle ---------------- */
+  optionsBtn.addEventListener('click', function () {
+    const hidden = optionsPanel.classList.toggle('hidden');
+    optionsChevron.style.transform = hidden ? '' : 'rotate(180deg)';
+  });
+
+  /* ---------------- Stats ---------------- */
+  function updateStats(md) {
+    const plain = md
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/`[^`]*`/g, ' ')
+      .replace(/[#>*_~\-|]/g, ' ');
+
+    const words = plain.split(/\s+/).filter(Boolean).length;
+    const chars = md.length;
+    const mins  = words === 0 ? 0 : Math.max(1, Math.round(words / 200));
+
+    docStats.textContent =
+      words.toLocaleString() + (words === 1 ? ' word' : ' words') + ' · ' +
+      mins + ' min read · ' +
+      chars.toLocaleString() + ' chars';
+  }
+
+  /* ---------------- Rendering ---------------- */
+  function renderMarkdown(mdText, name) {
+    markdownOutput.innerHTML = marked.parse(mdText);
+
+    fileNameEl.textContent = name;
+    updateStats(mdText);
+
+    // Keep the raw text editable when going back
+    rawTextInput.value = mdText;
+
+    // Nice default filename when saving as PDF
+    const base = name.replace(/\.[^.]+$/, '');
+    document.title = base ? base + ' — Markdown Printer' : DEFAULT_TITLE;
+
+    uploadScreen.classList.add('hidden');
+    printScreen.classList.remove('hidden');
+    window.scrollTo(0, 0);
+  }
+
+  /* ---------------- File handling ---------------- */
+  function processFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function (e) {
+      renderMarkdown(String(e.target.result || ''), file.name);
+    };
+    reader.readAsText(file);
+  }
+
+  dropZone.addEventListener('click', function () { fileInput.click(); });
+
+  dropZone.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    dropZone.classList.add('dragging');
+  });
+
+  dropZone.addEventListener('dragleave', function () {
+    dropZone.classList.remove('dragging');
+  });
+
+  dropZone.addEventListener('drop', function (e) {
+    e.preventDefault();
+    dropZone.classList.remove('dragging');
+    if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+      processFile(e.dataTransfer.files[0]);
+    }
+  });
+
+  fileInput.addEventListener('change', function (e) {
+    if (e.target.files.length > 0) processFile(e.target.files[0]);
+  });
+
+  // Prevent the browser from opening dropped files elsewhere
+  window.addEventListener('dragover', function (e) { e.preventDefault(); });
+  window.addEventListener('drop', function (e) {
+    if (!uploadScreen.classList.contains('hidden')) return; // handled above
+    e.preventDefault();
+  });
+
+  /* ---------------- Text input ---------------- */
+  renderTextBtn.addEventListener('click', function () {
+    const text = rawTextInput.value.trim();
+    if (!text) {
+      alert('Please choose a file or paste some Markdown first.');
+      rawTextInput.focus();
+      return;
+    }
+    renderMarkdown(text, 'pasted-text.md');
+  });
+
+  rawTextInput.addEventListener('keydown', function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      renderTextBtn.click();
+    }
+  });
+
+  rawTextInput.addEventListener('input', function () {
+    store(DRAFT_KEY, rawTextInput.value);
+  });
+
+  exampleBtn.addEventListener('click', function () {
+    rawTextInput.value = EXAMPLE;
+    store(DRAFT_KEY, EXAMPLE);
+    rawTextInput.focus();
+  });
+
+  /* ---------------- Actions ---------------- */
+  printBtn.addEventListener('click', function () { window.print(); });
+
+  function goBack() {
+    printScreen.classList.add('hidden');
+    uploadScreen.classList.remove('hidden');
+    document.title = DEFAULT_TITLE;
+    window.scrollTo(0, 0);
+    rawTextInput.focus();
+  }
+
+  backBtn.addEventListener('click', goBack);
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !printScreen.classList.contains('hidden')) {
+      goBack();
+    }
+  });
+
+  /* ---------------- Init ---------------- */
+  loadOptions();
+
+  const draft = read(DRAFT_KEY);
+  if (draft) rawTextInput.value = draft;
+
+  // Small nicety: render pasted text on Ctrl+Enter even before any file is loaded.
+  // Nothing else to do here.
+})();
+</script>
+</body>
+</html>
