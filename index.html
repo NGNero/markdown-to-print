@@ -1,504 +1,1439 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>markdown-to-print — Markdown Printer</title>
+<meta name="color-scheme" content="light dark">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none';
+               script-src 'unsafe-inline' https://cdn.jsdelivr.net;
+               style-src 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net;
+               font-src https://fonts.gstatic.com;
+               img-src data: blob: https:;
+               connect-src https://cdn.jsdelivr.net;
+               base-uri 'none';">
+<title>markdown-to-print</title>
 
-<!-- Tailwind CSS -->
-<script src="https://cdn.tailwindcss.com"></script>
-<!-- Marked.js -->
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<!-- Fonts: Akt (UI + sans doc), Source Serif 4 (serif doc), JetBrains Mono (code / mono doc) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Akt:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css">
+
+<script defer src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/build/highlight.min.js"></script>
+
+<!-- Early theme bootstrap: prevents flash of wrong theme -->
+<script>
+  (function () {
+    try {
+      var t = localStorage.getItem('mdprint.theme');
+      if (t !== 'light' && t !== 'dark') {
+        t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+      }
+      document.documentElement.setAttribute('data-theme', t);
+    } catch (e) {
+      document.documentElement.setAttribute('data-theme', 'light');
+    }
+  })();
+</script>
 
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+/* ==============================================================
+   Design tokens
+   ============================================================== */
+:root {
+  color-scheme: light;
+  --radius: 24px;
+  --radius-sm: 14px;
+  --radius-md: 18px;
+  --radius-lg: 32px;
+  --radius-pill: 999px;
 
-  :root {
-    --md-font-size: 15px;
-    --md-line-height: 1.6;
+  --font-ui:      'Akt', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-sans:    'Akt', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-serif:   'Source Serif 4', Georgia, 'Times New Roman', serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-system:  system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  --accent:       #1e5fff;
+  --accent-hover: #1a54e5;
+
+  /* Document vars — overwritten by JS */
+  --doc-font-size:      15px;
+  --doc-line-height:    1.65;
+  --doc-letter-spacing: 0em;
+  --doc-para-spacing:   1em;
+  --doc-heading-scale:  1;
+  --doc-align:          justify;
+}
+
+[data-theme="light"] {
+  --bg:           #fbfdff;
+  --bg-elevated:  #ffffff;
+  --bg-subtle:    #f0f3f8;
+  --bg-hover:     #e8ecf3;
+  --bg-code:      #f6f8fa;
+  --text:         #0d0f13;
+  --text-muted:   #5a6373;
+  --text-subtle:  #8b93a1;
+  --divider:      rgba(13, 15, 19, 0.08);
+  --shadow-sm:    0 1px 3px rgba(13, 15, 19, 0.05);
+  --shadow-md:    0 4px 16px rgba(13, 15, 19, 0.07);
+  --shadow-lg:    0 12px 40px rgba(13, 15, 19, 0.10);
+  --shadow-xl:    0 24px 64px rgba(13, 15, 19, 0.12);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg:           #0d0f13;
+  --bg-elevated:  #16181e;
+  --bg-subtle:    #1a1d24;
+  --bg-hover:     #21252d;
+  --bg-code:      #1e2128;
+  --text:         #fbfdff;
+  --text-muted:   #8b93a1;
+  --text-subtle:  #5a6373;
+  --divider:      rgba(251, 253, 255, 0.08);
+  --shadow-sm:    0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md:    0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-lg:    0 12px 40px rgba(0, 0, 0, 0.6);
+  --shadow-xl:    0 24px 64px rgba(0, 0, 0, 0.7);
+}
+
+/* ==============================================================
+   Base
+   ============================================================== */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  transition: background-color .2s ease, color .2s ease;
+}
+
+body.preload * { transition: none !important; }
+
+[hidden] { display: none !important; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+::selection { background: var(--accent); color: #fff; }
+
+/* ==============================================================
+   Buttons & inputs
+   ============================================================== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 22px;
+  border: none;
+  border-radius: var(--radius);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  background: var(--bg-subtle);
+  color: var(--text);
+  transition: background-color .15s ease, color .15s ease, transform .1s ease, box-shadow .15s ease;
+}
+
+.btn:hover  { background: var(--bg-hover); }
+.btn:active { transform: scale(0.98); }
+.btn svg    { width: 16px; height: 16px; flex: none; }
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover {
+  background: var(--accent-hover);
+  box-shadow: 0 6px 20px rgba(30, 95, 255, 0.3);
+}
+
+.btn-icon {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+}
+.btn-icon svg { width: 18px; height: 18px; }
+
+.btn-sm { padding: 9px 16px; font-size: 13px; }
+
+.field { display: block; min-width: 0; }
+
+.label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.input {
+  width: 100%;
+  padding: 12px 16px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  transition: background-color .15s ease, box-shadow .15s ease;
+}
+
+.input::placeholder { color: var(--text-subtle); }
+.input:focus {
+  outline: none;
+  background: var(--bg-elevated);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 180px;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  line-height: 1.65;
+  padding: 16px;
+}
+
+.select-wrap { position: relative; }
+
+.select {
+  width: 100%;
+  padding: 11px 40px 11px 16px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: background-color .15s ease, box-shadow .15s ease;
+}
+.select:hover  { background: var(--bg-hover); }
+.select:focus  { outline: none; box-shadow: 0 0 0 2px var(--accent); }
+
+.select-wrap::after {
+  content: "";
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  width: 10px;
+  height: 6px;
+  transform: translateY(-50%);
+  background: currentColor;
+  opacity: .55;
+  pointer-events: none;
+  -webkit-mask: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;
+          mask: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;
+}
+
+input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex: none;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+kbd {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+}
+
+/* ==============================================================
+   Site header
+   ============================================================== */
+.site-header {
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--text);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: -.01em;
+}
+
+.brand-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 12px;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.brand-mark svg { width: 18px; height: 18px; }
+
+.header-actions { display: flex; align-items: center; gap: 8px; }
+
+.theme-toggle {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-pill);
+  border: none;
+  background: var(--bg-subtle);
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color .15s ease;
+}
+.theme-toggle:hover { background: var(--bg-hover); }
+
+.theme-toggle .icon {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  transition: opacity .25s ease, transform .35s cubic-bezier(.4,0,.2,1);
+}
+
+[data-theme="light"] .theme-toggle .icon-sun  { opacity: 1; transform: rotate(0) scale(1); }
+[data-theme="light"] .theme-toggle .icon-moon { opacity: 0; transform: rotate(-90deg) scale(.4); }
+[data-theme="dark"]  .theme-toggle .icon-sun  { opacity: 0; transform: rotate(90deg) scale(.4); }
+[data-theme="dark"]  .theme-toggle .icon-moon { opacity: 1; transform: rotate(0) scale(1); }
+
+/* ==============================================================
+   Upload screen
+   ============================================================== */
+#upload-screen {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 24px 16px 64px;
+}
+
+.input-card {
+  width: 100%;
+  max-width: 680px;
+}
+
+.input-title {
+  margin: 0 0 8px;
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -.03em;
+  line-height: 1.1;
+  text-align: center;
+}
+
+.input-subtitle {
+  margin: 0 0 36px;
+  font-size: 15px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.drop-zone {
+  padding: 40px 24px;
+  border-radius: var(--radius);
+  background: var(--bg-subtle);
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  transition: background-color .15s ease, transform .15s ease;
+}
+.drop-zone:hover { background: var(--bg-hover); }
+.drop-zone.is-dragging {
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-subtle));
+  transform: scale(1.01);
+}
+
+.dz-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: var(--bg-elevated);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-sm);
+}
+.dz-icon svg { width: 24px; height: 24px; }
+
+.dz-text { display: flex; flex-direction: column; gap: 4px; }
+.dz-title { font-size: 15px; font-weight: 600; }
+.dz-hint  { font-size: 12.5px; color: var(--text-muted); }
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 28px 0;
+}
+.divider::before, .divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--divider);
+}
+.divider span {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-subtle);
+  text-transform: uppercase;
+  letter-spacing: .1em;
+}
+
+.input-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+.input-actions .btn { flex: 1 1 180px; }
+
+.input-hint {
+  margin: 18px 0 0;
+  font-size: 12px;
+  color: var(--text-subtle);
+  text-align: center;
+}
+
+/* ==============================================================
+   Preview screen
+   ============================================================== */
+#print-screen {
+  flex: 1;
+  animation: screenIn .35s ease;
+}
+
+@keyframes screenIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.toolbar-wrap {
+  position: sticky;
+  top: 12px;
+  z-index: 40;
+  max-width: 900px;
+  margin: 12px auto 0;
+  padding: 0 16px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-md);
+}
+
+.doc-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 8px;
+  line-height: 1.3;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.doc-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.doc-stats {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toolbar-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+
+#options-btn .chevron {
+  width: 10px;
+  height: 10px;
+  transition: transform .25s ease;
+}
+#options-btn[aria-expanded="true"] .chevron { transform: rotate(180deg); }
+
+/* ==============================================================
+   Options panel
+   ============================================================== */
+.options-panel {
+  margin-top: 8px;
+  padding: 6px;
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-md);
+  max-height: 52vh;
+  overflow-y: auto;
+  animation: panelIn .22s ease;
+}
+
+@keyframes panelIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.tab {
+  flex: 1;
+  padding: 9px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color .15s ease, color .15s ease;
+}
+.tab:hover { color: var(--text); }
+.tab.active {
+  background: var(--bg-elevated);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+.tab-pane { display: none; padding: 4px 10px 12px; }
+.tab-pane.active { display: block; }
+
+.options-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+@media (min-width: 720px) {
+  .options-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .options-grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+.options-group { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--divider); }
+.options-group:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+
+.options-group-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0 0 12px;
+}
+
+.checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 22px;
+}
+
+/* ==============================================================
+   Paper (document preview)
+   ============================================================== */
+.paper-container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 28px 16px 80px;
+}
+
+.paper {
+  background: #ffffff;
+  color: #0d0f13;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  padding: 56px 64px;
+}
+
+[data-theme="dark"] .paper {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), var(--shadow-xl);
+}
+
+@media (max-width: 680px) {
+  .paper { padding: 32px 24px; border-radius: var(--radius); }
+}
+
+/* ==============================================================
+   Markdown body
+   ============================================================== */
+.md-body {
+  font-family: var(--doc-font, var(--font-sans));
+  font-size: var(--doc-font-size);
+  line-height: var(--doc-line-height);
+  letter-spacing: var(--doc-letter-spacing);
+  color: #0d0f13;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+[data-doc-font="sans"]   .md-body { font-family: var(--font-sans); }
+[data-doc-font="serif"]  .md-body { font-family: var(--font-serif); }
+[data-doc-font="mono"]   .md-body { font-family: var(--font-mono); }
+[data-doc-font="system"] .md-body { font-family: var(--font-system); }
+
+[data-doc-align="left"]    { --doc-align: left; }
+[data-doc-align="justify"] { --doc-align: justify; }
+[data-doc-align="center"]  { --doc-align: center; }
+
+.md-body > *:first-child { margin-top: 0 !important; }
+.md-body > *:last-child  { margin-bottom: 0 !important; }
+
+.md-body h1 {
+  font-size: calc(1.85em * var(--doc-heading-scale));
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 1.6em 0 .6em;
+  padding-bottom: .3em;
+  border-bottom: 2px solid #0d0f13;
+  break-after: avoid !important;
+  page-break-after: avoid !important;
+}
+.md-body h2 {
+  font-size: calc(1.42em * var(--doc-heading-scale));
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 1.4em 0 .5em;
+  padding-bottom: .2em;
+  border-bottom: 1px solid #0d0f13;
+  break-after: avoid !important;
+  page-break-after: avoid !important;
+}
+.md-body h3 {
+  font-size: calc(1.2em * var(--doc-heading-scale));
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 1.2em 0 .4em;
+}
+.md-body h4, .md-body h5, .md-body h6 {
+  font-size: calc(1.08em * var(--doc-heading-scale));
+  font-weight: 600;
+  margin: 1.1em 0 .4em;
+}
+
+.md-body p {
+  margin: 0 0 var(--doc-para-spacing);
+  text-align: var(--doc-align);
+  orphans: 3;
+  widows: 3;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.md-body ul, .md-body ol { margin: .5em 0 var(--doc-para-spacing); padding-left: 1.6em; }
+.md-body ul { list-style-type: disc; }
+.md-body ol { list-style-type: decimal; }
+.md-body li { margin-bottom: .3em; break-inside: avoid; page-break-inside: avoid; }
+.md-body li > ul, .md-body li > ol { margin-bottom: 0; }
+.md-body li > p { margin-bottom: .4em; }
+
+.md-body ul.contains-task-list { list-style: none; padding-left: .2em; }
+.md-body ul.contains-task-list li { display: flex; align-items: flex-start; gap: .5em; }
+.md-body ul.contains-task-list input[type="checkbox"] { margin-top: .4em; }
+
+.md-body blockquote {
+  margin: 1em 0;
+  padding: 4px 0 4px 20px;
+  border-left: 4px solid var(--accent);
+  color: #4a5160;
+  font-style: italic;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.md-body blockquote > *:last-child { margin-bottom: 0; }
+
+.md-body hr {
+  border: 0;
+  border-top: 1px solid #d1d5db;
+  margin: 2em 0;
+}
+
+.md-body a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+
+.md-body code {
+  font-family: var(--font-mono);
+  font-size: .87em;
+  background: #f0f2f5;
+  padding: .15em .4em;
+  border-radius: 5px;
+  color: #1f2328;
+}
+
+.md-body pre {
+  margin: 0 0 1em;
+  padding: 16px 20px;
+  background: #f6f8fa;
+  border-radius: 12px;
+  overflow-x: auto;
+  line-height: 1.5;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.md-body pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: .86em;
+  line-height: inherit;
+  white-space: pre;
+}
+.md-body pre code.hljs { background: transparent; padding: 0; }
+
+.md-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 1em;
+  font-size: .94em;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.md-body th, .md-body td {
+  border: 1px solid #d1d5db;
+  padding: .5em .75em;
+  text-align: left;
+  vertical-align: top;
+}
+.md-body th { font-weight: 700; background: #f2f4f7; }
+
+.md-body img { max-width: 100%; height: auto; border-radius: 8px; }
+.md-body strong { font-weight: 700; }
+.md-body em { font-style: italic; }
+.md-body del { text-decoration: line-through; }
+
+/* -------- Table of contents -------- */
+.md-body .md-toc {
+  padding: 18px 22px;
+  margin: 0 0 28px;
+  background: #f7f9fc;
+  border-radius: 14px;
+  font-size: .92em;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.md-body .md-toc-title {
+  font-size: .74em;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: #6b7280;
+  margin-bottom: 10px;
+}
+.md-body .md-toc ul { list-style: none; margin: 0; padding: 0; }
+.md-body .md-toc li { margin: 0 0 4px; padding: 0; }
+.md-body .md-toc a {
+  text-decoration: none;
+  color: #0d0f13;
+}
+.md-body .md-toc a:hover { color: var(--accent); text-decoration: underline; }
+.md-body .md-toc .lvl-2 { padding-left: 1.2em; }
+.md-body .md-toc .lvl-3 { padding-left: 2.4em; }
+.md-body .md-toc .lvl-4 { padding-left: 3.6em; }
+.md-body .md-toc .lvl-5 { padding-left: 4.8em; }
+.md-body .md-toc .lvl-6 { padding-left: 6em; }
+
+/* -------- Page breaks -------- */
+body.break-h1 .md-body > h1:not(:first-child) {
+  break-before: page !important;
+  page-break-before: always !important;
+}
+body.break-h2 .md-body > h2 {
+  break-before: page !important;
+  page-break-before: always !important;
+}
+
+/* -------- Show link URLs -------- */
+[data-show-urls="true"] .md-body a[href^="http"]::after {
+  content: " (" attr(href) ")";
+  font-size: .8em;
+  font-style: normal;
+  text-decoration: none;
+  word-break: break-all;
+  opacity: .65;
+}
+
+/* ==============================================================
+   Footer
+   ============================================================== */
+.site-footer {
+  padding: 20px 24px;
+  border-top: 1px solid var(--divider);
+}
+
+.site-footer-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.footer-text {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.footer-text strong { color: var(--text); }
+.footer-dim { color: var(--text-subtle); }
+
+/* ==============================================================
+   Dialog
+   ============================================================== */
+.dialog {
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  color: var(--text);
+  max-width: 440px;
+  width: calc(100% - 32px);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+}
+.dialog::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.dialog-body {
+  padding: 32px 28px 24px;
+  text-align: center;
+}
+
+.dialog-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 18px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-subtle));
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dialog-icon svg { width: 26px; height: 26px; }
+
+.dialog-title {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+}
+.dialog-text {
+  margin: 0 0 24px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+.dialog-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.dialog-remember {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+/* ==============================================================
+   Toast
+   ============================================================== */
+#toast-container {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - 32px);
+  max-width: 400px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  background: var(--bg-elevated);
+  color: var(--text);
+  padding: 14px 20px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  font-size: 13.5px;
+  font-weight: 500;
+  opacity: 0;
+  transform: translateY(16px) scale(0.96);
+  transition: opacity .22s ease, transform .22s ease;
+  pointer-events: auto;
+}
+.toast.toast-show { opacity: 1; transform: translateY(0) scale(1); }
+.toast-error   { background: #dc2626; color: #fff; }
+.toast-success { background: #16a34a; color: #fff; }
+
+/* ==============================================================
+   Print
+   ============================================================== */
+@media print {
+  .no-print { display: none !important; }
+
+  html, body {
+    background: #fff !important;
+    color: #000 !important;
+    display: block !important;
+    min-height: 0 !important;
   }
 
-  html { -webkit-text-size-adjust: 100%; }
-
-  body {
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    background-color: #ffffff;
-    color: #000000;
-    -webkit-font-smoothing: antialiased;
+  #app, #print-screen, #content-area, .paper-container, .paper, #markdown-output {
+    display: block !important;
+    position: static !important;
+    float: none !important;
+    width: 100% !important;
+    max-width: none !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #fff !important;
+    color: #000 !important;
   }
 
-  /* ---------- Controls ---------- */
-  .ctrl {
-    width: 100%;
-    border: 1px solid #000;
-    background: #fff;
-    color: #000;
-    font-size: 12px;
-    padding: 5px 8px;
-    border-radius: 0;
-    appearance: none;
-    -webkit-appearance: none;
-    cursor: pointer;
-    transition: background .15s ease;
-  }
-  .ctrl:hover { background: #f7f7f7; }
-  .ctrl:focus { outline: none; box-shadow: 0 0 0 1px #000; }
+  .md-body th { background: transparent !important; }
 
-  select.ctrl {
-    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 8px center;
-    padding-right: 24px;
-  }
-  select.ctrl:hover { background-color: #f7f7f7; }
+  .md-body blockquote { border-left-color: #000 !important; }
+  .md-body hr         { border-top-color: #000 !important; }
+  .md-body a          { color: #000 !important; }
+  .md-body .md-toc    { background: transparent !important; padding: 0 !important; }
 
-  input[type="checkbox"] { accent-color: #000; }
-
-  /* ---------- Drop zone ---------- */
-  #drop-zone { transition: background .15s ease, border-color .15s ease; }
-  #drop-zone.dragging { background: #f3f4f6; border-style: solid; }
-
-  /* ---------- Markdown body ---------- */
-  .md-body {
-    color: #000;
-    line-height: var(--md-line-height);
-    font-size: var(--md-font-size);
-    width: 100%;
-    word-wrap: break-word;
-  }
-
-  .md-body > *:first-child { margin-top: 0 !important; }
-
-  .md-body h1 {
-    font-size: 1.8em;
-    font-weight: 700;
-    margin-top: 1.6em;
-    margin-bottom: .6em;
-    border-bottom: 2px solid #000;
-    padding-bottom: .3em;
+  h1, h2, h3, h4, h5, h6 {
     break-after: avoid !important;
     page-break-after: avoid !important;
   }
-  .md-body h2 {
-    font-size: 1.4em;
-    font-weight: 700;
-    margin-top: 1.4em;
-    margin-bottom: .5em;
-    border-bottom: 1px solid #000;
-    padding-bottom: .2em;
-    break-after: avoid !important;
-    page-break-after: avoid !important;
-  }
-  .md-body h3, .md-body h4, .md-body h5, .md-body h6 {
-    font-size: 1.15em;
-    font-weight: 600;
-    margin-top: 1.2em;
-    margin-bottom: .4em;
-    break-after: avoid !important;
-    page-break-after: avoid !important;
+  p, blockquote, li, pre, table, tr, img {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    orphans: 3 !important;
+    widows: 3 !important;
   }
 
-  .md-body p {
-    margin-bottom: 1em;
-    text-align: left;
-    orphans: 3;
-    widows: 3;
-    break-inside: avoid;
-    page-break-inside: avoid;
+  /* Grayscale-friendly code highlighting */
+  .hljs, .hljs * {
+    color: #000 !important;
+    background: transparent !important;
   }
-  body.justify .md-body p { text-align: justify; }
-
-  .md-body ul, .md-body ol {
-    margin-top: .5em;
-    margin-bottom: 1em;
-    padding-left: 1.5em;
-  }
-  .md-body ul { list-style-type: disc; }
-  .md-body ol { list-style-type: decimal; }
-  .md-body li {
-    margin-bottom: .3em;
-    break-inside: avoid;
-    page-break-inside: avoid;
-  }
-  .md-body li > ul, .md-body li > ol { margin-bottom: 0; }
-
-  .md-body ul.contains-task-list { list-style: none; padding-left: .3em; }
-  .md-body ul.contains-task-list li { display: flex; gap: .5em; align-items: flex-start; }
-  .md-body input[type="checkbox"] { margin-top: .35em; flex: none; }
-
-  .md-body blockquote {
-    border-left: 3px solid #000;
-    padding-left: 1em;
-    margin: 1em 0;
-    font-style: italic;
-    break-inside: avoid;
-    page-break-inside: avoid;
-  }
-  .md-body blockquote > :last-child { margin-bottom: 0; }
-
-  .md-body hr {
-    border: 0;
-    border-top: 1px solid #000;
-    margin: 1.8em 0;
-  }
-
-  .md-body a { color: #000; text-decoration: underline; text-underline-offset: 2px; }
-
-  .md-body code {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    background: #f0f0f0;
-    padding: .1em .3em;
-    border: 1px solid #ccc;
-    font-size: .9em;
-  }
-  .md-body pre {
-    background: #f8f8f8;
-    border: 1px solid #000;
-    padding: .8em;
-    margin-bottom: 1em;
-    overflow-x: auto;
-    break-inside: avoid;
-    page-break-inside: avoid;
-    line-height: 1.45;
-  }
-  .md-body pre code {
-    background: transparent;
-    border: none;
-    padding: 0;
-    font-size: .88em;
-  }
-
-  .md-body table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-bottom: 1em;
-    font-size: .95em;
-    break-inside: avoid;
-    page-break-inside: avoid;
-  }
-  .md-body th, .md-body td {
-    border: 1px solid #000;
-    padding: .4em .6em;
-    text-align: left;
-    vertical-align: top;
-  }
-  .md-body th { font-weight: 700; background: #f2f2f2; }
-
-  .md-body img { max-width: 100%; height: auto; }
-
-  .md-body strong { font-weight: 700; }
-  .md-body em { font-style: italic; }
-  .md-body del { text-decoration: line-through; }
-
-  /* ---------- Optional page breaks ---------- */
-  body.break-h1 .md-body h1:not(:first-child) {
-    break-before: page !important;
-    page-break-before: always !important;
-  }
-  body.break-h2 .md-body h2 {
-    break-before: page !important;
-    page-break-before: always !important;
-  }
-
-  /* ---------- Preview "paper" look (screen only) ---------- */
-  #preview {
-    background: #fff;
-    border: 1px solid #e5e5e5;
-    box-shadow: 0 1px 2px rgba(0,0,0,.05);
-  }
-
-  /* ---------- Print ---------- */
-  @media print {
-    .no-print { display: none !important; }
-
-    html, body { background: #fff !important; }
-
-    #app,
-    #print-screen,
-    #content-area,
-    #preview,
-    #markdown-output {
-      display: block !important;
-      height: auto !important;
-      min-height: 0 !important;
-      max-height: none !important;
-      max-width: none !important;
-      width: 100% !important;
-      overflow: visible !important;
-      position: static !important;
-      float: none !important;
-      margin: 0 !important;
-      padding: 0 !important;
-      border: 0 !important;
-      box-shadow: none !important;
-      background: #fff !important;
-      color: #000 !important;
-    }
-
-    .md-body th { background: transparent !important; }
-
-    h1, h2, h3, h4, h5, h6 {
-      break-after: avoid !important;
-      page-break-after: avoid !important;
-    }
-    p, blockquote, li, pre, table, tr {
-      break-inside: avoid !important;
-      page-break-inside: avoid !important;
-      orphans: 3 !important;
-      widows: 3 !important;
-    }
-
-    body.show-link-urls .md-body a[href^="http"]::after {
-      content: " (" attr(href) ")";
-      font-size: .85em;
-      word-break: break-all;
-      text-decoration: none;
-    }
-  }
+  .hljs-comment, .hljs-quote { font-style: italic; color: #4b4b4b !important; }
+  .hljs-keyword, .hljs-selector-tag, .hljs-literal,
+  .hljs-built_in, .hljs-name, .hljs-type { font-weight: 700; }
+  .hljs-string, .hljs-attr, .hljs-template-string,
+  .hljs-regexp, .hljs-addition { font-style: italic; }
+  .hljs-number, .hljs-symbol, .hljs-bullet { font-weight: 600; }
+  .hljs-deletion { text-decoration: line-through; }
+  .hljs-emphasis { font-style: italic; }
+  .hljs-strong   { font-weight: 700; }
+}
 </style>
 
-<!-- Dynamic @page rules (size / margins) -->
+<!-- Dynamic @page rule -->
 <style id="page-style"></style>
 </head>
 
-<body class="min-h-screen flex flex-col bg-white text-black">
+<body class="preload">
 
-  <!-- ============ HEADER ============ -->
-  <header class="no-print border-b border-black">
-    <div class="max-w-5xl mx-auto px-4 h-12 flex items-center justify-between gap-4">
-      <div class="flex items-baseline gap-2 min-w-0">
-        <span class="font-bold tracking-tight text-sm whitespace-nowrap">markdown-to-print</span>
-        <span class="text-[11px] text-gray-500 truncate">(Markdown Printer)</span>
+<!-- ================================ HEADER ================================ -->
+<header class="site-header no-print">
+  <a class="brand" href="#" aria-label="markdown-to-print">
+    <span class="brand-mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="8" y1="13" x2="16" y2="13"/>
+        <line x1="8" y1="17" x2="13" y2="17"/>
+      </svg>
+    </span>
+    <span>markdown-to-print</span>
+  </a>
+
+  <div class="header-actions">
+    <button class="theme-toggle" id="theme-toggle" aria-label="Toggle color theme" title="Toggle light / dark theme">
+      <svg class="icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="4"/>
+        <line x1="12" y1="2" x2="12" y2="4"/>
+        <line x1="12" y1="20" x2="12" y2="22"/>
+        <line x1="4.93" y1="4.93" x2="6.34" y2="6.34"/>
+        <line x1="17.66" y1="17.66" x2="19.07" y2="19.07"/>
+        <line x1="2" y1="12" x2="4" y2="12"/>
+        <line x1="20" y1="12" x2="22" y2="12"/>
+        <line x1="4.93" y1="19.07" x2="6.34" y2="17.66"/>
+        <line x1="17.66" y1="6.34" x2="19.07" y2="4.93"/>
+      </svg>
+      <svg class="icon icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    </button>
+
+    <a class="btn btn-sm" href="https://www.patreon.com/cw/modcore" target="_blank" rel="noopener noreferrer" title="Support development on Patreon">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 21s-7.5-4.7-9.3-9A5.4 5.4 0 0 1 12 5.4 5.4 5.4 0 0 1 21.3 12c-1.8 4.3-9.3 9-9.3 9z"/>
+      </svg>
+      <span>Support</span>
+    </a>
+  </div>
+</header>
+
+<main id="app" style="flex:1 1 auto;">
+
+  <!-- ============================ UPLOAD ============================ -->
+  <section id="upload-screen" class="no-print">
+    <div class="input-card">
+      <h1 class="input-title">Markdown Printer</h1>
+      <p class="input-subtitle">Turn Markdown into a clean, print-ready document.</p>
+
+      <div id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="Choose a Markdown file or drop it here">
+        <input type="file" id="file-input" accept=".md,.markdown,.mdown,.txt,.text" hidden>
+        <div class="dz-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9"/>
+            <polyline points="9 13 12 10 15 13"/>
+            <line x1="12" y1="10" x2="12" y2="21"/>
+          </svg>
+        </div>
+        <div class="dz-text">
+          <span class="dz-title">Drop a file or click to upload</span>
+          <span class="dz-hint">.md, .markdown, .txt · processed locally, never uploaded</span>
+        </div>
       </div>
 
-      <a href="https://www.patreon.com/cw/modcore" target="_blank" rel="noopener noreferrer"
-         class="group inline-flex items-center gap-1.5 text-[11px] font-semibold border border-black px-2.5 py-1 hover:bg-black hover:text-white transition-colors">
-        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path d="M12 21s-7.5-4.7-9.3-9A5.4 5.4 0 0 1 12 5.4 5.4 5.4 0 0 1 21.3 12c-1.8 4.3-9.3 9-9.3 9z"/>
-        </svg>
-        Support on Patreon
-      </a>
-    </div>
-  </header>
+      <div class="divider"><span>or paste text</span></div>
 
-  <main id="app" class="flex-1 w-full">
+      <textarea id="raw-text-input"
+                class="input textarea"
+                spellcheck="false"
+                aria-label="Markdown input"
+                placeholder="# Hello&#10;&#10;Paste your Markdown here…"></textarea>
 
-    <!-- ============ INPUT SCREEN ============ -->
-    <section id="upload-screen" class="no-print max-w-2xl mx-auto px-4 py-12 sm:py-16">
-      <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-center">Markdown Printer</h1>
-      <p class="text-sm text-gray-500 text-center mt-2 mb-10">
-        Drop a file or paste your Markdown — get a clean, print-ready document.
-      </p>
-
-      <!-- Drop zone -->
-      <div id="drop-zone"
-           class="border-2 border-dashed border-black p-8 text-center cursor-pointer hover:bg-gray-50 flex flex-col items-center justify-center gap-2 mb-6 select-none">
-        <input type="file" id="file-input" accept=".md,.markdown,.txt,.text" class="hidden">
-        <svg class="w-8 h-8 mb-1" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true">
-          <path stroke-linecap="round" stroke-linejoin="round"
-                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
-        </svg>
-        <p class="font-semibold text-sm">Upload a file or drag it here</p>
-        <p class="text-xs text-gray-500">Supports .md, .markdown and .txt</p>
-      </div>
-
-      <!-- Divider -->
-      <div class="flex items-center gap-4 mb-6">
-        <div class="flex-1 border-t border-gray-300"></div>
-        <span class="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">or paste text</span>
-        <div class="flex-1 border-t border-gray-300"></div>
-      </div>
-
-      <!-- Textarea -->
-      <textarea id="raw-text-input" rows="10" spellcheck="false"
-                placeholder="# Hello&#10;&#10;Paste your Markdown here…"
-                class="w-full p-3 border border-black text-sm font-mono leading-relaxed resize-y focus:outline-none focus:ring-1 focus:ring-black placeholder:text-gray-400"></textarea>
-
-      <div class="flex flex-col sm:flex-row gap-2 mt-4">
-        <button id="render-text-btn"
-                class="flex-1 py-3 bg-black text-white text-sm font-bold hover:bg-gray-800 active:bg-gray-900 transition-colors">
-          Preview &amp; Print
+      <div class="input-actions">
+        <button id="render-text-btn" class="btn btn-primary" type="button">
+          <span>Preview &amp; Print</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="5" y1="12" x2="19" y2="12"/>
+            <polyline points="12 5 19 12 12 19"/>
+          </svg>
         </button>
-        <button id="example-btn"
-                class="py-3 px-4 border border-black text-sm font-medium hover:bg-gray-100 transition-colors">
+        <button id="example-btn" class="btn" type="button" title="Fill the editor with a sample document">
           Load example
         </button>
       </div>
 
-      <p class="text-[11px] text-gray-400 text-center mt-4">
-        Tip: press
-        <kbd class="px-1 py-0.5 border border-gray-300 bg-gray-50 font-mono text-[10px]">Ctrl</kbd>
-        +
-        <kbd class="px-1 py-0.5 border border-gray-300 bg-gray-50 font-mono text-[10px]">Enter</kbd>
-        to render. Your draft is saved locally.
+      <p class="input-hint">
+        Press <kbd>Ctrl</kbd> + <kbd>Enter</kbd> to render · drafts are saved automatically
       </p>
-    </section>
+    </div>
+  </section>
 
-    <!-- ============ PREVIEW / PRINT SCREEN ============ -->
-    <section id="print-screen" class="hidden">
+  <!-- ========================= PREVIEW / PRINT ========================= -->
+  <section id="print-screen" hidden>
 
-      <!-- Toolbar -->
-      <div class="no-print sticky top-0 z-40 bg-white border-b border-black">
-        <div class="max-w-5xl mx-auto px-4">
+    <div class="toolbar-wrap no-print">
+      <div class="toolbar">
+        <button id="back-btn" class="btn-icon" type="button" aria-label="Back to editor" title="Back to editor (Esc)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="19" y1="12" x2="5" y2="12"/>
+            <polyline points="12 19 5 12 12 5"/>
+          </svg>
+        </button>
 
-          <!-- Row 1 -->
-          <div class="flex items-center gap-3 py-2.5">
-            <button id="back-btn"
-                    class="shrink-0 text-xs font-medium px-2.5 py-1.5 border border-black hover:bg-black hover:text-white transition-colors">
-              &larr; Edit
-            </button>
+        <div class="doc-meta">
+          <span id="file-name" class="doc-name">document.md</span>
+          <span id="doc-stats" class="doc-stats">0 words</span>
+        </div>
 
-            <div class="min-w-0 flex-1 leading-tight">
-              <div id="file-name" class="text-xs font-mono font-semibold truncate">document.md</div>
-              <div id="doc-stats" class="text-[10px] text-gray-500 truncate">0 words</div>
-            </div>
+        <div class="toolbar-actions">
+          <button id="options-btn" class="btn btn-sm" type="button" aria-expanded="false" aria-controls="options-panel" title="Show layout and typography options">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="4" y1="6" x2="20" y2="6"/>
+              <line x1="4" y1="12" x2="20" y2="12"/>
+              <line x1="4" y1="18" x2="20" y2="18"/>
+              <circle cx="9" cy="6" r="2" fill="var(--bg-elevated)"/>
+              <circle cx="15" cy="12" r="2" fill="var(--bg-elevated)"/>
+              <circle cx="9" cy="18" r="2" fill="var(--bg-elevated)"/>
+            </svg>
+            <span>Options</span>
+            <svg class="chevron" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M1 1l4 4 4-4"/>
+            </svg>
+          </button>
 
-            <button id="options-btn"
-                    class="shrink-0 text-xs font-medium px-2.5 py-1.5 border border-black hover:bg-gray-100 transition-colors flex items-center gap-1.5">
-              Options
-              <svg id="options-chevron" class="w-3 h-3 transition-transform" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
-              </svg>
-            </button>
+          <button id="print-btn" class="btn btn-sm btn-primary" type="button" title="Open print dialog">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="6 9 6 2 18 2 18 9"/>
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+              <rect x="6" y="14" width="12" height="8"/>
+            </svg>
+            <span>Print</span>
+          </button>
+        </div>
+      </div>
 
-            <button id="print-btn"
-                    class="shrink-0 text-xs font-bold px-4 py-1.5 bg-black text-white hover:bg-gray-800 transition-colors">
-              Print / PDF
-            </button>
-          </div>
+      <div id="options-panel" class="options-panel" hidden>
 
-          <!-- Row 2: options panel -->
-          <div id="options-panel" class="hidden border-t border-gray-200 py-3">
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <label class="block">
-                <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Page size</span>
-                <select id="opt-page" class="ctrl">
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-tab="layout" role="tab" aria-selected="true" type="button">Layout</button>
+          <button class="tab" data-tab="typography" role="tab" aria-selected="false" type="button">Typography</button>
+          <button class="tab" data-tab="content" role="tab" aria-selected="false" type="button">Content</button>
+        </div>
+
+        <!-- ---------- Layout ---------- -->
+        <div class="tab-pane active" data-pane="layout">
+          <div class="options-grid">
+            <label class="field" title="Physical paper size used when printing">
+              <span class="label">Page size</span>
+              <span class="select-wrap">
+                <select id="opt-page" class="select">
                   <option value="A4">A4</option>
                   <option value="Letter">Letter</option>
                 </select>
-              </label>
+              </span>
+            </label>
 
-              <label class="block">
-                <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Margins</span>
-                <select id="opt-margin" class="ctrl">
+            <label class="field" title="Amount of white space around the printed content">
+              <span class="label">Margins</span>
+              <span class="select-wrap">
+                <select id="opt-margin" class="select">
                   <option value="narrow">Narrow</option>
                   <option value="normal">Normal</option>
                   <option value="wide">Wide</option>
                 </select>
-              </label>
+              </span>
+            </label>
+          </div>
 
-              <label class="block">
-                <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Text size</span>
-                <select id="opt-size" class="ctrl">
+          <div class="options-group">
+            <p class="options-group-title">Page breaks</p>
+            <div class="checks">
+              <label class="check" title="Start a new page before every H1 except the first">
+                <input type="checkbox" id="opt-break-h1">
+                <span>Before H1</span>
+              </label>
+              <label class="check" title="Start a new page before every H2">
+                <input type="checkbox" id="opt-break-h2">
+                <span>Before H2</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- ---------- Typography ---------- -->
+        <div class="tab-pane" data-pane="typography">
+          <div class="options-grid cols-3">
+            <label class="field" title="Font family used for the document body">
+              <span class="label">Document font</span>
+              <span class="select-wrap">
+                <select id="opt-doc-font" class="select">
+                  <option value="sans">Sans (Akt)</option>
+                  <option value="serif">Serif (Source Serif)</option>
+                  <option value="mono">Mono (JetBrains Mono)</option>
+                  <option value="system">System</option>
+                </select>
+              </span>
+            </label>
+
+            <label class="field" title="Base font size of the document body">
+              <span class="label">Font size</span>
+              <span class="select-wrap">
+                <select id="opt-size" class="select">
                   <option value="13">Small</option>
                   <option value="15">Normal</option>
                   <option value="17">Large</option>
                 </select>
-              </label>
+              </span>
+            </label>
 
-              <label class="block">
-                <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Line height</span>
-                <select id="opt-leading" class="ctrl">
-                  <option value="1.4">Compact</option>
-                  <option value="1.6">Normal</option>
-                  <option value="1.8">Relaxed</option>
+            <label class="field" title="Vertical spacing between lines of text">
+              <span class="label">Line height</span>
+              <span class="select-wrap">
+                <select id="opt-leading" class="select">
+                  <option value="1.5">Compact</option>
+                  <option value="1.65">Normal</option>
+                  <option value="1.85">Relaxed</option>
                 </select>
-              </label>
-            </div>
+              </span>
+            </label>
 
-            <div class="flex flex-wrap gap-x-5 gap-y-2 mt-3 pt-3 border-t border-gray-100">
-              <label class="flex items-center gap-1.5 cursor-pointer select-none text-xs">
-                <input type="checkbox" id="opt-break-h1" class="w-3.5 h-3.5">
-                <span>New page before H1</span>
+            <label class="field" title="Horizontal spacing between characters">
+              <span class="label">Letter spacing</span>
+              <span class="select-wrap">
+                <select id="opt-letterspacing" class="select">
+                  <option value="-0.01em">Tight</option>
+                  <option value="0em">Normal</option>
+                  <option value="0.02em">Wide</option>
+                </select>
+              </span>
+            </label>
+
+            <label class="field" title="Space between paragraphs">
+              <span class="label">Paragraph spacing</span>
+              <span class="select-wrap">
+                <select id="opt-para-spacing" class="select">
+                  <option value="0.75em">Compact</option>
+                  <option value="1em">Normal</option>
+                  <option value="1.5em">Relaxed</option>
+                </select>
+              </span>
+            </label>
+
+            <label class="field" title="Scales all heading sizes proportionally">
+              <span class="label">Heading scale</span>
+              <span class="select-wrap">
+                <select id="opt-heading-scale" class="select">
+                  <option value="0.9">Small</option>
+                  <option value="1">Normal</option>
+                  <option value="1.15">Large</option>
+                </select>
+              </span>
+            </label>
+
+            <label class="field" title="Horizontal alignment of paragraphs">
+              <span class="label">Alignment</span>
+              <span class="select-wrap">
+                <select id="opt-align" class="select">
+                  <option value="left">Left</option>
+                  <option value="justify">Justify</option>
+                  <option value="center">Center</option>
+                </select>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <!-- ---------- Content ---------- -->
+        <div class="tab-pane" data-pane="content">
+          <div class="options-group">
+            <p class="options-group-title">Table of contents</p>
+            <div class="options-grid cols-3">
+              <label class="check" title="Insert an automatically generated table of contents" style="align-self:center">
+                <input type="checkbox" id="opt-toc">
+                <span>Generate TOC</span>
               </label>
-              <label class="flex items-center gap-1.5 cursor-pointer select-none text-xs">
-                <input type="checkbox" id="opt-break-h2" class="w-3.5 h-3.5">
-                <span>New page before H2</span>
+
+              <label class="field" title="Where the table of contents should appear">
+                <span class="label">Position</span>
+                <span class="select-wrap">
+                  <select id="opt-toc-pos" class="select">
+                    <option value="top">Top of document</option>
+                    <option value="after-first">After first heading</option>
+                  </select>
+                </span>
               </label>
-              <label class="flex items-center gap-1.5 cursor-pointer select-none text-xs">
-                <input type="checkbox" id="opt-justify" class="w-3.5 h-3.5">
-                <span>Justify text</span>
-              </label>
-              <label class="flex items-center gap-1.5 cursor-pointer select-none text-xs">
-                <input type="checkbox" id="opt-links" class="w-3.5 h-3.5">
-                <span>Show link URLs in print</span>
+
+              <label class="field" title="Deepest heading level included in the table of contents">
+                <span class="label">Depth</span>
+                <span class="select-wrap">
+                  <select id="opt-toc-depth" class="select">
+                    <option value="1">H1 only</option>
+                    <option value="2">H1 – H2</option>
+                    <option value="3">H1 – H3</option>
+                    <option value="4">H1 – H4</option>
+                  </select>
+                </span>
               </label>
             </div>
           </div>
 
+          <div class="options-group">
+            <p class="options-group-title">Print details</p>
+            <div class="checks">
+              <label class="check" title="Append the target URL after every external link when printing">
+                <input type="checkbox" id="opt-urls">
+                <span>Show link URLs</span>
+              </label>
+            </div>
+          </div>
         </div>
+
       </div>
+    </div>
 
-      <!-- Document -->
-      <div id="content-area" class="max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
-        <div id="preview" class="p-6 sm:p-10">
-          <div id="markdown-output" class="md-body"><!-- rendered markdown --></div>
-        </div>
+    <div class="paper-container">
+      <div class="paper" id="preview">
+        <div id="markdown-output" class="md-body"></div>
       </div>
+    </div>
 
-    </section>
-  </main>
+  </section>
+</main>
 
-  <!-- ============ PATREON BANNER ============ -->
-  <footer class="no-print border-t border-black bg-black text-white">
-    <div class="max-w-5xl mx-auto px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-3">
-      <p class="text-[11px] text-center sm:text-left leading-relaxed">
-        <span class="font-semibold">markdown-to-print</span> is free to use.
-        <span class="text-gray-400">If it saves you time, consider buying us a coffee.</span>
-      </p>
+<!-- ================================ FOOTER ================================ -->
+<footer class="site-footer no-print">
+  <div class="site-footer-inner">
+    <p class="footer-text">
+      <strong>markdown-to-print</strong> — free, private, open.
+      <span class="footer-dim">If it saves you time, consider supporting development.</span>
+    </p>
 
-      <a href="https://www.patreon.com/cw/modcore" target="_blank" rel="noopener noreferrer"
-         class="group shrink-0 inline-flex items-center gap-2 px-3.5 py-1.5 bg-white text-black text-xs font-bold hover:bg-gray-200 transition-colors">
-        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <a class="btn btn-sm btn-primary" href="https://www.patreon.com/cw/modcore" target="_blank" rel="noopener noreferrer" title="Support development on Patreon">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 21s-7.5-4.7-9.3-9A5.4 5.4 0 0 1 12 5.4 5.4 5.4 0 0 1 21.3 12c-1.8 4.3-9.3 9-9.3 9z"/>
+      </svg>
+      <span>Support on Patreon</span>
+    </a>
+  </div>
+</footer>
+
+<!-- ================================ DIALOG ================================ -->
+<dialog id="support-dialog" class="dialog" aria-labelledby="dialog-title">
+  <div class="dialog-body">
+    <div class="dialog-icon">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 21s-7.5-4.7-9.3-9A5.4 5.4 0 0 1 12 5.4 5.4 5.4 0 0 1 21.3 12c-1.8 4.3-9.3 9-9.3 9z"/>
+      </svg>
+    </div>
+    <h2 class="dialog-title" id="dialog-title">Your document is ready</h2>
+    <p class="dialog-text">
+      markdown-to-print is free and stays free. If it saved you time,
+      a small tip on Patreon keeps it alive and growing.
+    </p>
+    <div class="dialog-actions">
+      <a class="btn btn-primary" href="https://www.patreon.com/cw/modcore" target="_blank" rel="noopener noreferrer">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <path d="M12 21s-7.5-4.7-9.3-9A5.4 5.4 0 0 1 12 5.4 5.4 5.4 0 0 1 21.3 12c-1.8 4.3-9.3 9-9.3 9z"/>
         </svg>
         Support on Patreon
-        <span class="transition-transform group-hover:translate-x-0.5">&rarr;</span>
       </a>
+      <button class="btn" id="dialog-close" type="button">Maybe later</button>
     </div>
-  </footer>
+    <label class="dialog-remember">
+      <input type="checkbox" id="dont-show-again">
+      <span>Don't show this again</span>
+    </label>
+  </div>
+</dialog>
 
+<div id="toast-container" aria-live="polite"></div>
+
+<!-- ================================= SCRIPT ================================= -->
 <script>
 (function () {
   'use strict';
 
-  /* ---------------- Elements ---------------- */
-  const uploadScreen  = document.getElementById('upload-screen');
-  const printScreen   = document.getElementById('print-screen');
-  const dropZone      = document.getElementById('drop-zone');
-  const fileInput     = document.getElementById('file-input');
-  const rawTextInput  = document.getElementById('raw-text-input');
-  const renderTextBtn = document.getElementById('render-text-btn');
-  const exampleBtn    = document.getElementById('example-btn');
-  const markdownOutput= document.getElementById('markdown-output');
-  const fileNameEl    = document.getElementById('file-name');
-  const docStats      = document.getElementById('doc-stats');
-  const printBtn      = document.getElementById('print-btn');
-  const backBtn       = document.getElementById('back-btn');
-  const optionsBtn    = document.getElementById('options-btn');
-  const optionsPanel  = document.getElementById('options-panel');
-  const optionsChevron= document.getElementById('options-chevron');
-
-  const optPage    = document.getElementById('opt-page');
-  const optMargin  = document.getElementById('opt-margin');
-  const optSize    = document.getElementById('opt-size');
-  const optLeading = document.getElementById('opt-leading');
-  const optBreakH1 = document.getElementById('opt-break-h1');
-  const optBreakH2 = document.getElementById('opt-break-h2');
-  const optJustify = document.getElementById('opt-justify');
-  const optLinks   = document.getElementById('opt-links');
-
-  const DEFAULT_TITLE = 'markdown-to-print — Markdown Printer';
-  const OPTS_KEY   = 'mdprint.options.v1';
-  const DRAFT_KEY  = 'mdprint.draft.v1';
-
-  const MARGINS = {
-    narrow: '12mm',
-    normal: '20mm 15mm',
-    wide:   '25mm 20mm'
+  /* ==============================================================
+     Constants
+     ============================================================== */
+  var STORAGE = {
+    theme:   'mdprint.theme',
+    options: 'mdprint.options.v3',
+    draft:   'mdprint.draft.v3',
+    support: 'mdprint.support.v3'
   };
 
-  const EXAMPLE = [
+  var DEFAULT_OPTIONS = {
+    pageSize:        'A4',
+    margin:          'normal',
+    breakH1:         false,
+    breakH2:         false,
+    docFont:         'sans',
+    fontSize:        15,
+    lineHeight:      1.65,
+    letterSpacing:   '0em',
+    paraSpacing:     '1em',
+    headingScale:    1,
+    align:           'justify',
+    toc:             false,
+    tocPosition:     'top',
+    tocDepth:        3,
+    showUrls:        false
+  };
+
+  var MARGINS = {
+    narrow: { v: 12, h: 10 },
+    normal: { v: 20, h: 15 },
+    wide:   { v: 26, h: 20 }
+  };
+
+  var EXAMPLE = [
     '# Quarterly Report',
     '',
     '> A short example showing what **markdown-to-print** can do.',
@@ -507,20 +1442,29 @@
     '',
     '- Fast, dependency-light rendering',
     '- Clean black & white print stylesheet',
-    '- Optional page breaks before headings',
+    '- Automatic table of contents',
+    '- Light and dark interface',
     '',
     '## Data',
     '',
-    '| Metric   | Q1   | Q2   |',
-    '|----------|------|------|',
-    '| Revenue  | 12k  | 18k  |',
-    '| Users    | 340  | 512  |',
+    '| Metric  | Q1  | Q2  |',
+    '|---------|-----|-----|',
+    '| Revenue | 12k | 18k |',
+    '| Users   | 340 | 512 |',
     '',
     '## Code',
     '',
     '```js',
     'const greet = (name) => `Hello, ${name}!`;',
     'console.log(greet("world"));',
+    '```',
+    '',
+    '```python',
+    'def fib(n):',
+    '    a, b = 0, 1',
+    '    while a < n:',
+    '        print(a, end=" ")',
+    '        a, b = b, a + b',
     '```',
     '',
     '---',
@@ -534,198 +1478,676 @@
     'More at [the documentation](https://example.com/docs).'
   ].join('\n');
 
-  /* ---------------- Safe storage ---------------- */
-  function store(key, value) {
-    try { localStorage.setItem(key, value); } catch (e) { /* ignore */ }
-  }
-  function read(key) {
+  /* ==============================================================
+     State
+     ============================================================== */
+  var state = {
+    options: Object.assign({}, DEFAULT_OPTIONS),
+    raw: '',
+    filename: 'document.md',
+    title: '',
+    headings: []
+  };
+
+  /* ==============================================================
+     Helpers
+     ============================================================== */
+  var $ = function (id) { return document.getElementById(id); };
+
+  function safeGet(key) {
     try { return localStorage.getItem(key); } catch (e) { return null; }
   }
-
-  /* ---------------- Options ---------------- */
-  function syncFromUI() {
-    document.documentElement.style.setProperty('--md-font-size', optSize.value + 'px');
-    document.documentElement.style.setProperty('--md-line-height', optLeading.value);
-
-    document.body.classList.toggle('justify', optJustify.checked);
-    document.body.classList.toggle('break-h1', optBreakH1.checked);
-    document.body.classList.toggle('break-h2', optBreakH2.checked);
-    document.body.classList.toggle('show-link-urls', optLinks.checked);
-
-    document.getElementById('page-style').textContent =
-      '@page { size: ' + optPage.value + '; margin: ' + (MARGINS[optMargin.value] || MARGINS.normal) + '; }';
-
-    store(OPTS_KEY, JSON.stringify({
-      page: optPage.value,
-      margin: optMargin.value,
-      size: optSize.value,
-      leading: optLeading.value,
-      breakH1: optBreakH1.checked,
-      breakH2: optBreakH2.checked,
-      justify: optJustify.checked,
-      links: optLinks.checked
-    }));
+  function safeSet(key, value) {
+    try { localStorage.setItem(key, value); } catch (e) { /* ignore */ }
   }
 
+  function slugify(text) {
+    return String(text)
+      .toLowerCase()
+      .trim()
+      .replace(/[^\w\s-]/g, '')
+      .replace(/[\s_]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+  }
+
+  /* ==============================================================
+     Element cache
+     ============================================================== */
+  var el = {};
+
+  function cacheElements() {
+    el.uploadScreen  = $('upload-screen');
+    el.printScreen   = $('print-screen');
+    el.dropZone      = $('drop-zone');
+    el.fileInput     = $('file-input');
+    el.rawText       = $('raw-text-input');
+    el.renderBtn     = $('render-text-btn');
+    el.exampleBtn    = $('example-btn');
+    el.fileName      = $('file-name');
+    el.docStats      = $('doc-stats');
+    el.markdownOut   = $('markdown-output');
+    el.backBtn       = $('back-btn');
+    el.optionsBtn    = $('options-btn');
+    el.optionsPanel  = $('options-panel');
+    el.printBtn      = $('print-btn');
+    el.themeToggle   = $('theme-toggle');
+    el.dialog        = $('support-dialog');
+    el.dialogClose   = $('dialog-close');
+    el.dontShowAgain = $('dont-show-again');
+    el.toastContainer= $('toast-container');
+    el.pageStyle     = $('page-style');
+  }
+
+  /* ==============================================================
+     Toast
+     ============================================================== */
+  function toast(message, type) {
+    var node = document.createElement('div');
+    node.className = 'toast' + (type ? ' toast-' + type : '');
+    node.setAttribute('role', 'status');
+    node.textContent = message;
+
+    el.toastContainer.appendChild(node);
+
+    requestAnimationFrame(function () {
+      node.classList.add('toast-show');
+    });
+
+    setTimeout(function () {
+      node.classList.remove('toast-show');
+      setTimeout(function () { node.remove(); }, 260);
+    }, 3000);
+  }
+
+  /* ==============================================================
+     Theme
+     ============================================================== */
+  function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    safeSet(STORAGE.theme, theme);
+  }
+
+  function toggleTheme() {
+    var current = document.documentElement.getAttribute('data-theme') || 'light';
+    applyTheme(current === 'dark' ? 'light' : 'dark');
+  }
+
+  /* ==============================================================
+     Options — persistence
+     ============================================================== */
   function loadOptions() {
-    let o = null;
-    try { o = JSON.parse(read(OPTS_KEY) || 'null'); } catch (e) { o = null; }
+    var raw = safeGet(STORAGE.options);
+    if (!raw) return;
 
-    if (o) {
-      if (o.page)    optPage.value = o.page;
-      if (o.margin)  optMargin.value = o.margin;
-      if (o.size)    optSize.value = o.size;
-      if (o.leading) optLeading.value = o.leading;
-      optBreakH1.checked = !!o.breakH1;
-      optBreakH2.checked = !!o.breakH2;
-      optJustify.checked = o.justify !== false;
-      optLinks.checked   = !!o.links;
-    } else {
-      optJustify.checked = true;
+    try {
+      var parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        Object.keys(DEFAULT_OPTIONS).forEach(function (key) {
+          if (Object.prototype.hasOwnProperty.call(parsed, key)) {
+            state.options[key] = parsed[key];
+          }
+        });
+      }
+    } catch (e) { /* ignore corrupted options */ }
+
+    if (!MARGINS[state.options.margin]) state.options.margin = DEFAULT_OPTIONS.margin;
+    if (state.options.pageSize !== 'A4' && state.options.pageSize !== 'Letter') {
+      state.options.pageSize = DEFAULT_OPTIONS.pageSize;
     }
-    syncFromUI();
   }
 
-  [optPage, optMargin, optSize, optLeading, optBreakH1, optBreakH2, optJustify, optLinks]
-    .forEach(function (el) { el.addEventListener('change', syncFromUI); });
+  function saveOptions() {
+    safeSet(STORAGE.options, JSON.stringify(state.options));
+  }
 
-  /* ---------------- Options panel toggle ---------------- */
-  optionsBtn.addEventListener('click', function () {
-    const hidden = optionsPanel.classList.toggle('hidden');
-    optionsChevron.style.transform = hidden ? '' : 'rotate(180deg)';
-  });
+  /* ==============================================================
+     Options — apply to the UI
+     ============================================================== */
+  function applyOptions() {
+    var o = state.options;
+    var root = document.documentElement;
+    var body = document.body;
+    var m = MARGINS[o.margin] || MARGINS.normal;
 
-  /* ---------------- Stats ---------------- */
-  function updateStats(md) {
-    const plain = md
+    el.pageStyle.textContent =
+      '@page { size: ' + (o.pageSize === 'Letter' ? 'Letter' : 'A4') + '; ' +
+      'margin: ' + m.v + 'mm ' + m.h + 'mm; }';
+
+    root.style.setProperty('--doc-font-size',      o.fontSize + 'px');
+    root.style.setProperty('--doc-line-height',    String(o.lineHeight));
+    root.style.setProperty('--doc-letter-spacing', o.letterSpacing);
+    root.style.setProperty('--doc-para-spacing',   o.paraSpacing);
+    root.style.setProperty('--doc-heading-scale',  String(o.headingScale));
+
+    body.setAttribute('data-doc-font',  o.docFont);
+    body.setAttribute('data-doc-align', o.align);
+    body.setAttribute('data-show-urls', o.showUrls ? 'true' : 'false');
+    body.classList.toggle('break-h1', !!o.breakH1);
+    body.classList.toggle('break-h2', !!o.breakH2);
+
+    renderToc();
+    saveOptions();
+  }
+
+  /* ==============================================================
+     Options — bind inputs
+     ============================================================== */
+  function bindOption(id, key, type) {
+    var node = $(id);
+    if (!node) return;
+
+    var eventName = (node.tagName === 'INPUT' && node.type === 'text') ? 'input' : 'change';
+
+    node.addEventListener(eventName, function () {
+      if (type === 'bool')       state.options[key] = node.checked;
+      else if (type === 'int')   state.options[key] = parseInt(node.value, 10);
+      else if (type === 'float') state.options[key] = parseFloat(node.value);
+      else                       state.options[key] = node.value;
+      applyOptions();
+    });
+  }
+
+  function syncUIFromOptions() {
+    var o = state.options;
+
+    $('opt-page').value          = o.pageSize;
+    $('opt-margin').value        = o.margin;
+    $('opt-break-h1').checked    = !!o.breakH1;
+    $('opt-break-h2').checked    = !!o.breakH2;
+
+    $('opt-doc-font').value      = o.docFont;
+    $('opt-size').value          = String(o.fontSize);
+    $('opt-leading').value       = String(o.lineHeight);
+    $('opt-letterspacing').value = o.letterSpacing;
+    $('opt-para-spacing').value  = o.paraSpacing;
+    $('opt-heading-scale').value = String(o.headingScale);
+    $('opt-align').value         = o.align;
+
+    $('opt-toc').checked         = !!o.toc;
+    $('opt-toc-pos').value       = o.tocPosition;
+    $('opt-toc-depth').value     = String(o.tocDepth);
+
+    $('opt-urls').checked        = !!o.showUrls;
+  }
+
+  function bindAllOptions() {
+    bindOption('opt-page',          'pageSize',      'str');
+    bindOption('opt-margin',        'margin',        'str');
+    bindOption('opt-break-h1',      'breakH1',       'bool');
+    bindOption('opt-break-h2',      'breakH2',       'bool');
+    bindOption('opt-doc-font',      'docFont',       'str');
+    bindOption('opt-size',          'fontSize',      'int');
+    bindOption('opt-leading',       'lineHeight',    'float');
+    bindOption('opt-letterspacing', 'letterSpacing', 'str');
+    bindOption('opt-para-spacing',  'paraSpacing',   'str');
+    bindOption('opt-heading-scale', 'headingScale',  'float');
+    bindOption('opt-align',         'align',         'str');
+    bindOption('opt-toc',           'toc',           'bool');
+    bindOption('opt-toc-pos',       'tocPosition',   'str');
+    bindOption('opt-toc-depth',     'tocDepth',      'int');
+    bindOption('opt-urls',          'showUrls',      'bool');
+  }
+
+  /* ==============================================================
+     Tabs
+     ============================================================== */
+  function setupTabs() {
+    var tabs  = document.querySelectorAll('.tab');
+    var panes = document.querySelectorAll('.tab-pane');
+
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        var name = tab.getAttribute('data-tab');
+
+        tabs.forEach(function (t) {
+          var active = (t === tab);
+          t.classList.toggle('active', active);
+          t.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
+
+        panes.forEach(function (p) {
+          p.classList.toggle('active', p.getAttribute('data-pane') === name);
+        });
+      });
+    });
+  }
+
+  /* ==============================================================
+     Markdown pipeline
+     ============================================================== */
+  function sanitizeToFragment(html) {
+    if (typeof window.DOMPurify === 'undefined') {
+      var frag = document.createDocumentFragment();
+      frag.appendChild(document.createTextNode(html));
+      return frag;
+    }
+    return window.DOMPurify.sanitize(html, {
+      RETURN_DOM_FRAGMENT: true,
+      ADD_ATTR: ['target', 'rel'],
+      FORBID_TAGS: ['style', 'form', 'button', 'select', 'textarea',
+                    'option', 'link', 'meta', 'base', 'iframe', 'object', 'embed'],
+      FORBID_ATTR: ['style', 'onerror', 'onload', 'onclick']
+    });
+  }
+
+  function decorateLinks(root) {
+    root.querySelectorAll('a[href]').forEach(function (a) {
+      var href = (a.getAttribute('href') || '').trim();
+      if (/^(javascript|data|vbscript):/i.test(href)) {
+        a.removeAttribute('href');
+        return;
+      }
+      if (/^https?:/i.test(href)) {
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noopener noreferrer');
+      }
+    });
+  }
+
+  function decorateHeadings(root) {
+    var items = [];
+    var used  = new Set();
+    var counter = 0;
+
+    root.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(function (h) {
+      var level = parseInt(h.tagName.charAt(1), 10);
+      var text  = (h.textContent || '').replace(/\s+/g, ' ').trim();
+
+      var base = slugify(text) || ('section-' + (++counter));
+      var id = base;
+      var n = 2;
+      while (used.has(id) || document.getElementById(id)) {
+        id = base + '-' + (n++);
+      }
+      used.add(id);
+
+      h.id = id;
+      items.push({ level: level, id: id, text: text || ('Section ' + counter) });
+    });
+
+    return items;
+  }
+
+  function highlightCode(root) {
+    if (typeof window.hljs === 'undefined') return;
+
+    root.querySelectorAll('pre > code').forEach(function (code) {
+      var classes = Array.prototype.slice.call(code.classList);
+      var langClass = null;
+      for (var i = 0; i < classes.length; i++) {
+        if (classes[i].indexOf('language-') === 0) { langClass = classes[i]; break; }
+      }
+      var lang = langClass ? langClass.slice(9).toLowerCase() : '';
+      var text = code.textContent || '';
+
+      // Skip pathological auto-detection on huge blocks
+      if (!lang && text.length > 20000) return;
+
+      var result;
+      try {
+        if (lang && window.hljs.getLanguage(lang)) {
+          result = window.hljs.highlight(text, { language: lang, ignoreIllegals: true });
+        } else {
+          result = window.hljs.highlightAuto(text);
+        }
+      } catch (e) {
+        return;
+      }
+
+      // Convert highlighted HTML to DOM *without* innerHTML.
+      try {
+        var parsed = new DOMParser().parseFromString(result.value, 'text/html');
+        var nodes = Array.prototype.slice.call(parsed.body.childNodes);
+        code.replaceChildren.apply(code, nodes);
+        code.classList.add('hljs');
+      } catch (e) { /* leave plain text on failure */ }
+    });
+  }
+
+  /* ==============================================================
+     Table of contents
+     ============================================================== */
+  function renderToc() {
+    var old = document.getElementById('md-toc');
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+
+    if (!state.options.toc || state.headings.length === 0) return;
+
+    var maxDepth = parseInt(state.options.tocDepth, 10) || 3;
+    var entries = state.headings.filter(function (h) { return h.level <= maxDepth; });
+    if (entries.length === 0) return;
+
+    var nav = document.createElement('nav');
+    nav.id = 'md-toc';
+    nav.className = 'md-toc';
+    nav.setAttribute('aria-label', 'Table of contents');
+
+    var title = document.createElement('div');
+    title.className = 'md-toc-title';
+    title.textContent = 'Contents';
+    nav.appendChild(title);
+
+    var list = document.createElement('ul');
+    entries.forEach(function (entry) {
+      var li = document.createElement('li');
+      li.className = 'lvl-' + entry.level;
+
+      var a = document.createElement('a');
+      a.setAttribute('href', '#' + entry.id);
+      a.textContent = entry.text;
+
+      li.appendChild(a);
+      list.appendChild(li);
+    });
+    nav.appendChild(list);
+
+    var out = el.markdownOut;
+
+    if (state.options.tocPosition === 'after-first') {
+      var firstHeading = out.querySelector('h1, h2, h3, h4, h5, h6');
+      if (firstHeading && firstHeading.parentNode) {
+        firstHeading.parentNode.insertBefore(nav, firstHeading.nextSibling);
+        return;
+      }
+    }
+
+    out.insertBefore(nav, out.firstChild);
+  }
+
+  /* ==============================================================
+     Stats
+     ============================================================== */
+  function updateStats(markdown) {
+    var plain = String(markdown)
       .replace(/```[\s\S]*?```/g, ' ')
       .replace(/`[^`]*`/g, ' ')
-      .replace(/[#>*_~\-|]/g, ' ');
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/[#>*_~|`\-]/g, ' ');
 
-    const words = plain.split(/\s+/).filter(Boolean).length;
-    const chars = md.length;
-    const mins  = words === 0 ? 0 : Math.max(1, Math.round(words / 200));
+    var words = plain.split(/\s+/).filter(Boolean).length;
+    var chars = markdown.length;
+    var mins = words === 0 ? 0 : Math.max(1, Math.round(words / 200));
 
-    docStats.textContent =
-      words.toLocaleString() + (words === 1 ? ' word' : ' words') + ' · ' +
-      mins + ' min read · ' +
+    el.docStats.textContent =
+      words.toLocaleString() + ' words · ' +
+      mins + ' min · ' +
       chars.toLocaleString() + ' chars';
   }
 
-  /* ---------------- Rendering ---------------- */
-  function renderMarkdown(mdText, name) {
-    markdownOutput.innerHTML = marked.parse(mdText);
+  /* ==============================================================
+     Main render
+     ============================================================== */
+  function render(markdownText, filename) {
+    if (!markdownText || !markdownText.trim()) return;
 
-    fileNameEl.textContent = name;
-    updateStats(mdText);
+    state.raw = markdownText;
+    state.filename = filename || 'document.md';
 
-    // Keep the raw text editable when going back
-    rawTextInput.value = mdText;
+    el.fileName.textContent = state.filename;
+    el.rawText.value = markdownText;
 
-    // Nice default filename when saving as PDF
-    const base = name.replace(/\.[^.]+$/, '');
-    document.title = base ? base + ' — Markdown Printer' : DEFAULT_TITLE;
+    var displayName = state.filename.replace(/\.[^.]+$/, '') || 'Document';
+    document.title = displayName + ' — markdown-to-print';
 
-    uploadScreen.classList.add('hidden');
-    printScreen.classList.remove('hidden');
+    /* 1. Markdown -> HTML */
+    var html = '';
+    if (typeof window.marked !== 'undefined') {
+      try {
+        html = window.marked.parse(markdownText, { gfm: true, breaks: false });
+      } catch (e) {
+        html = '<p>Could not parse the Markdown.</p>';
+      }
+    } else {
+      html = '<p>Markdown library failed to load.</p>';
+    }
+
+    /* 2. HTML -> sanitized DOM */
+    var fragment = sanitizeToFragment(html);
+    var root = document.createElement('div');
+    root.appendChild(fragment);
+
+    /* 3. Decorate */
+    decorateLinks(root);
+    state.headings = decorateHeadings(root);
+
+    var firstH1 = root.querySelector('h1');
+    state.title = firstH1 ? (firstH1.textContent || '').trim() : displayName;
+
+    highlightCode(root);
+
+    /* 4. Commit to DOM (no innerHTML) */
+    el.markdownOut.replaceChildren.apply(
+      el.markdownOut,
+      Array.prototype.slice.call(root.childNodes)
+    );
+
+    renderToc();
+    updateStats(markdownText);
+
+    /* 5. Swap screens */
+    el.uploadScreen.hidden = true;
+    el.printScreen.hidden  = false;
     window.scrollTo(0, 0);
   }
 
-  /* ---------------- File handling ---------------- */
+  /* ==============================================================
+     File handling
+     ============================================================== */
   function processFile(file) {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = function (e) {
-      renderMarkdown(String(e.target.result || ''), file.name);
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast('File is too large (max 5 MB).', 'error');
+      return;
+    }
+
+    var reader = new FileReader();
+    reader.onload = function (event) {
+      render(String(event.target.result || ''), file.name);
+    };
+    reader.onerror = function () {
+      toast('Could not read that file.', 'error');
     };
     reader.readAsText(file);
   }
 
-  dropZone.addEventListener('click', function () { fileInput.click(); });
+  /* ==============================================================
+     Support dialog
+     ============================================================== */
+  var dialogShownThisSession = false;
 
-  dropZone.addEventListener('dragover', function (e) {
-    e.preventDefault();
-    dropZone.classList.add('dragging');
-  });
+  function maybeShowSupport() {
+    if (dialogShownThisSession) return;
+    if (safeGet(STORAGE.support)) return;
+    if (el.printScreen.hidden) return;
 
-  dropZone.addEventListener('dragleave', function () {
-    dropZone.classList.remove('dragging');
-  });
+    dialogShownThisSession = true;
 
-  dropZone.addEventListener('drop', function (e) {
-    e.preventDefault();
-    dropZone.classList.remove('dragging');
-    if (e.dataTransfer && e.dataTransfer.files.length > 0) {
-      processFile(e.dataTransfer.files[0]);
+    if (typeof el.dialog.showModal === 'function') {
+      el.dialog.showModal();
+    } else {
+      el.dialog.setAttribute('open', '');
     }
-  });
-
-  fileInput.addEventListener('change', function (e) {
-    if (e.target.files.length > 0) processFile(e.target.files[0]);
-  });
-
-  // Prevent the browser from opening dropped files elsewhere
-  window.addEventListener('dragover', function (e) { e.preventDefault(); });
-  window.addEventListener('drop', function (e) {
-    if (!uploadScreen.classList.contains('hidden')) return; // handled above
-    e.preventDefault();
-  });
-
-  /* ---------------- Text input ---------------- */
-  renderTextBtn.addEventListener('click', function () {
-    const text = rawTextInput.value.trim();
-    if (!text) {
-      alert('Please choose a file or paste some Markdown first.');
-      rawTextInput.focus();
-      return;
-    }
-    renderMarkdown(text, 'pasted-text.md');
-  });
-
-  rawTextInput.addEventListener('keydown', function (e) {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      e.preventDefault();
-      renderTextBtn.click();
-    }
-  });
-
-  rawTextInput.addEventListener('input', function () {
-    store(DRAFT_KEY, rawTextInput.value);
-  });
-
-  exampleBtn.addEventListener('click', function () {
-    rawTextInput.value = EXAMPLE;
-    store(DRAFT_KEY, EXAMPLE);
-    rawTextInput.focus();
-  });
-
-  /* ---------------- Actions ---------------- */
-  printBtn.addEventListener('click', function () { window.print(); });
-
-  function goBack() {
-    printScreen.classList.add('hidden');
-    uploadScreen.classList.remove('hidden');
-    document.title = DEFAULT_TITLE;
-    window.scrollTo(0, 0);
-    rawTextInput.focus();
   }
 
-  backBtn.addEventListener('click', goBack);
+  /* ==============================================================
+     Event wiring — upload screen
+     ============================================================== */
+  function wireUploadScreen() {
+    // Click + keyboard on the drop zone
+    el.dropZone.addEventListener('click', function () { el.fileInput.click(); });
+    el.dropZone.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        el.fileInput.click();
+      }
+    });
 
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && !printScreen.classList.contains('hidden')) {
-      goBack();
+    el.fileInput.addEventListener('change', function (e) {
+      if (e.target.files && e.target.files.length > 0) {
+        processFile(e.target.files[0]);
+      }
+    });
+
+    ['dragover', 'dragenter'].forEach(function (evt) {
+      el.dropZone.addEventListener(evt, function (e) {
+        e.preventDefault();
+        el.dropZone.classList.add('is-dragging');
+      });
+    });
+    ['dragleave', 'dragend'].forEach(function (evt) {
+      el.dropZone.addEventListener(evt, function () {
+        el.dropZone.classList.remove('is-dragging');
+      });
+    });
+    el.dropZone.addEventListener('drop', function (e) {
+      e.preventDefault();
+      el.dropZone.classList.remove('is-dragging');
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        processFile(e.dataTransfer.files[0]);
+      }
+    });
+
+    // Prevent the browser from navigating when a file is dropped elsewhere
+    window.addEventListener('dragover', function (e) { e.preventDefault(); });
+    window.addEventListener('drop', function (e) {
+      if (e.target.closest && e.target.closest('#drop-zone')) return;
+      e.preventDefault();
+    });
+
+    // Render pasted text
+    el.renderBtn.addEventListener('click', function () {
+      var text = el.rawText.value.trim();
+      if (!text) {
+        toast('Nothing to render — paste some Markdown first.', 'error');
+        el.rawText.focus();
+        return;
+      }
+      render(text, 'pasted.md');
+    });
+
+    // Ctrl/Cmd + Enter renders
+    el.rawText.addEventListener('keydown', function (e) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        el.renderBtn.click();
+      }
+    });
+
+    // Persist draft
+    el.rawText.addEventListener('input', function () {
+      safeSet(STORAGE.draft, el.rawText.value);
+    });
+
+    // Load example
+    el.exampleBtn.addEventListener('click', function () {
+      el.rawText.value = EXAMPLE;
+      safeSet(STORAGE.draft, EXAMPLE);
+      render(EXAMPLE, 'example.md');
+      toast('Example loaded.');
+    });
+  }
+
+  /* ==============================================================
+     Event wiring — preview screen
+     ============================================================== */
+  function wirePreviewScreen() {
+    el.backBtn.addEventListener('click', goBack);
+
+    el.optionsBtn.addEventListener('click', function () {
+      var expanded = el.optionsBtn.getAttribute('aria-expanded') === 'true';
+      el.optionsBtn.setAttribute('aria-expanded', String(!expanded));
+      el.optionsPanel.hidden = expanded;
+    });
+
+    el.printBtn.addEventListener('click', function () {
+      window.print();
+    });
+
+    // Show support dialog after printing
+    window.addEventListener('afterprint', function () {
+      setTimeout(maybeShowSupport, 300);
+    });
+
+    el.dialogClose.addEventListener('click', function () {
+      el.dialog.close('dismiss');
+    });
+
+    el.dialog.addEventListener('close', function () {
+      if (el.dontShowAgain.checked) {
+        safeSet(STORAGE.support, '1');
+      }
+    });
+
+    // Esc → back
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && !el.printScreen.hidden) {
+        if (el.dialog.open) return;
+        goBack();
+      }
+    });
+  }
+
+  function goBack() {
+    el.printScreen.hidden  = true;
+    el.uploadScreen.hidden = false;
+    document.title = 'markdown-to-print';
+    window.scrollTo(0, 0);
+    el.rawText.focus();
+  }
+
+  /* ==============================================================
+     Init
+     ============================================================== */
+  function init() {
+    cacheElements();
+
+    if (!window.marked || !window.DOMPurify) {
+      var warn = document.createElement('p');
+      warn.style.cssText = 'text-align:center;padding:20px;font-size:13px;color:#dc2626';
+      warn.textContent = 'Required libraries failed to load. Please check your connection and reload.';
+      el.uploadScreen.querySelector('.input-card').appendChild(warn);
+      return;
     }
-  });
 
-  /* ---------------- Init ---------------- */
-  loadOptions();
+    // Configure marked once
+    if (typeof window.marked.setOptions === 'function') {
+      window.marked.setOptions({ gfm: true, breaks: false });
+    }
 
-  const draft = read(DRAFT_KEY);
-  if (draft) rawTextInput.value = draft;
+    // Load & apply options
+    loadOptions();
+    syncUIFromOptions();
+    bindAllOptions();
+    applyOptions();
 
-  // Small nicety: render pasted text on Ctrl+Enter even before any file is loaded.
-  // Nothing else to do here.
+    // Theme toggle
+    el.themeToggle.addEventListener('click', toggleTheme);
+
+    // Tabs
+    setupTabs();
+
+    // Wire screens
+    wireUploadScreen();
+    wirePreviewScreen();
+
+    // Restore draft
+    var draft = safeGet(STORAGE.draft);
+    if (draft) el.rawText.value = draft;
+
+    // Remove preload class (prevents transition flash)
+    window.addEventListener('load', function () {
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          document.body.classList.remove('preload');
+        });
+      });
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
 })();
 </script>
 </body>
